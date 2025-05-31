@@ -40,7 +40,8 @@ struct Lexer {
 impl Lexer {
     fn new(input: String) -> Self {
         Lexer {
-            input,position: 0,
+            input,
+            position: 0,
         }
     }
 
