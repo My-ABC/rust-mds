@@ -211,7 +211,9 @@ impl Node {
         self.children.push(child);
     }
 
-    fn repr(&self) -> String {
+    /*fn repr(&self) -> String {
+
+
         let children_repr = self.children.iter()
             .map(|child| match child {
                 NodeType::Node(node) => node.repr(),
@@ -221,7 +223,8 @@ impl Node {
             .join(",");
         
         format!("{}({})", self.name, children_repr)
-    }
+    }*/
+    
 }
 
 struct Perser {
@@ -261,6 +264,9 @@ impl Perser {
                     return Ok(left.clone());
                 }
                 break;
+            }
+            if self.position >= self.tokens.len() {
+                return Err("Unexpected end of input".to_string());
             }
             let op = self.tokens.get(self.position).unwrap();
             node.add_child(NodeType::Text(to_string(op)));
@@ -306,6 +312,9 @@ impl Perser {
                 }
                 break;
             }
+            if self.position >= self.tokens.len() {
+                return Err("Unexpected end of input".to_string());
+            }
             let op = self.tokens.get(self.position).unwrap();
             node.add_child(NodeType::Text(to_string(op)));
             self.position += 1;
@@ -340,6 +349,9 @@ impl Perser {
         if matches!(t, Token::Add | Token::Sub) {
             unode.add_child(NodeType::Text(to_string(t)));
             self.position += 1;
+            if self.position >= self.tokens.len() {
+                return Err("Unexpected end of input".to_string());
+            }
 
             let right = self.factor();
             match right {
@@ -371,8 +383,14 @@ impl Perser {
 
         let t = self.tokens.get(self.position).unwrap();
         if !matches!(t, Token::Pow) {
+            if self.position >= self.tokens.len() {
+                return Err("Unexpected end of input".to_string());
+            }
             return Ok(left.clone());
         } else {
+            if self.position >= self.tokens.len() {
+                return Err("Unexpected end of input".to_string());
+            }
             node.add_child(NodeType::Text(to_string(t)));
             self.position += 1;
 
@@ -411,7 +429,13 @@ impl Perser {
             _ => {
                 if matches!(self.tokens.get(self.position).unwrap(), Token::LParen) {
                     self.position += 1;
+                    if self.position >= self.tokens.len() {
+                        return Err("Unexpected end of input".to_string());
+                    }
                     let node = self.expr();
+                    if self.position >= self.tokens.len() {
+                        return Err("Unexpected end of input".to_string());
+                    }
                     match node {
                         Ok(node) => {
                             if matches!(self.tokens.get(self.position).unwrap(), Token::RParen) {
@@ -458,7 +482,7 @@ enum ByteCode {
     UNARYOP(i32) // i32 is opc 0: ADD 1: SUB
 }
 
-impl ByteCodes {
+/*impl ByteCodes {
     fn dis(&self) {
         for code in &self.codes {
             match code {
@@ -477,7 +501,7 @@ impl ByteCodes {
             }
         }
     }
-}
+}*/
 
 struct Dis {
     b : ByteCodes
@@ -526,6 +550,254 @@ impl Dis {
     }
 }
 
+struct VM {
+    b: ByteCodes,
+    s: Vec<i64>,
+    s2: Vec<f64>,
+
+    now: Vec<NowType>,
+
+    val: Vec<NowType>
+}
+
+#[derive(Clone)]
+enum NowType {
+    Int(i64),
+    Float(f64),
+}
+
+impl NowType {
+    fn get(&mut self) {
+        match self {
+            NowType::Int(i) => {
+                println!("{}", *i);
+            },
+            NowType::Float(f) => {
+                println!("{}", *f);
+            }
+        }
+    }
+}
+
+impl VM {
+    fn new(b: ByteCodes) -> Self {
+        VM {
+            b,
+            s: vec![],
+            s2: vec![],
+            now: vec![],
+
+            val: vec![]
+        }
+    }
+
+    fn run(&mut self) -> Vec<NowType> {
+        for bc in self.b.codes.iter() {
+            match bc {
+                ByteCode::PUSHI(i) => {
+                    self.now.push(NowType::Int(*i));
+                    self.s.push(*i);
+                    self.val.push(NowType::Int(*i));
+                },
+                ByteCode::PUSHF(f) => {
+                    self.now.push(NowType::Float(*f));
+                    self.s2.push(*f);
+                    self.val.push(NowType::Float(*f));
+                },
+                ByteCode::BINOP(op) => {
+                    let mut v = self.now.pop();
+                    if matches!(v, Some(NowType::Int(_))) {
+                        v = self.now.pop();
+                        if matches!(v, Some(NowType::Int(_))) {
+                            let b = self.s.pop().unwrap();
+                            let a = self.s.pop().unwrap();
+
+                            match op {
+                                0 => {
+                                    self.now.push(NowType::Int(a+b));
+                                    self.s.push(a+b);
+                                    self.val.push(NowType::Int(a+b));
+                                },
+                                1 => {
+                                    self.now.push(NowType::Int(a-b));
+                                    self.s.push(a-b);
+                                    self.val.push(NowType::Int(a-b));
+                                },
+                                2 => {
+                                    self.now.push(NowType::Int(a*b));
+                                    self.s.push(a*b);
+                                    self.val.push(NowType::Int(a*b));
+                                },
+                                3 => {
+                                    self.now.push(NowType::Int(a/b));
+                                    self.s.push(a/b);
+                                    self.val.push(NowType::Int(a/b));
+                                },
+                                4 => {
+                                    self.now.push(NowType::Int(a.pow(b as u32)));
+                                    self.s.push(a.pow(b as u32));
+                                    self.val.push(NowType::Int(a.pow(b as u32)));
+                                },
+                                _ => {
+                                    println!("Not Def op");
+                                }
+                                
+                            }
+                        } else if matches!(v, Some(NowType::Float(_))) {
+                            let b = self.s.pop().unwrap() as f64;
+                            let a = self.s2.pop().unwrap();
+
+                            match op {
+                                0 => {
+                                    self.now.push(NowType::Float(a+b));
+                                    self.s2.push(a+b);
+                                    self.val.push(NowType::Float(a+b));
+                                },
+                                1 => {
+                                    self.now.push(NowType::Float(a-b));
+                                    self.s2.push(a-b);
+                                    self.val.push(NowType::Float(a-b));
+                                },
+                                2 => {
+                                    self.now.push(NowType::Float(a*b));
+                                    self.s2.push(a*b);
+                                    self.val.push(NowType::Float(a*b));
+                                },
+                                3 => {
+                                    self.now.push(NowType::Float(a/b));
+                                    self.s2.push(a/b);
+                                    self.val.push(NowType::Float(a/b));
+                                },
+                                4 => {
+                                    self.now.push(NowType::Float(a.powf(b)));
+                                    self.s2.push(a.powf(b));
+                                    self.val.push(NowType::Float(a.powf(b)));
+                                },
+                                _ => {
+                                    println!("Not Def op");
+                                }
+                                
+                            }
+                        }
+                    } else if matches!(v, Some(NowType::Float(_))) {
+                        v = self.now.pop();
+                        if matches!(v, Some(NowType::Int(_))) {
+                            let b = self.s2.pop().unwrap();
+                            let a = self.s.pop().unwrap() as f64;
+
+                            match op {
+                                0 => {
+                                    self.now.push(NowType::Float(a+b));
+                                    self.s2.push(a+b);
+                                    self.val.push(NowType::Float(a+b));
+                                },
+                                1 => {
+                                    self.now.push(NowType::Float(a-b));
+                                    self.s2.push(a-b);
+                                    self.val.push(NowType::Float(a-b));
+                                },
+                                2 => {
+                                    self.now.push(NowType::Float(a*b));
+                                    self.s2.push(a*b);
+                                    self.val.push(NowType::Float(a*b));
+                                },
+                                3 => {
+                                    self.now.push(NowType::Float(a/b));
+                                    self.s2.push(a/b);
+                                    self.val.push(NowType::Float(a/b));
+                                },
+                                4 => {
+                                    self.now.push(NowType::Float(a.powf(b)));
+                                    self.s2.push(a.powf(b));
+                                    self.val.push(NowType::Float(a.powf(b)));
+                                },
+                                _ => {
+                                    println!("Not Def op");
+                                }
+                                
+                            }
+                        } else if matches!(v, Some(NowType::Float(_))) {
+                            let b = self.s2.pop().unwrap();
+                            let a = self.s2.pop().unwrap();
+
+                            match op {
+                                0 => {
+                                    self.now.push(NowType::Float(a+b));
+                                    self.s2.push(a+b);
+                                    self.val.push(NowType::Float(a+b));
+                                },
+                                1 => {
+                                    self.now.push(NowType::Float(a-b));
+                                    self.s2.push(a-b);
+                                    self.val.push(NowType::Float(a-b));
+                                },
+                                2 => {
+                                    self.now.push(NowType::Float(a*b));
+                                    self.s2.push(a*b);
+                                    self.val.push(NowType::Float(a*b));
+                                },
+                                3 => {
+                                    self.now.push(NowType::Float(a/b));
+                                    self.s2.push(a/b);
+                                    self.val.push(NowType::Float(a/b));
+                                },
+                                4 => {
+                                    self.now.push(NowType::Float(a.powf(b)));
+                                    self.s2.push(a.powf(b));
+                                    self.val.push(NowType::Float(a.powf(b)));
+                                },
+                                _ => {
+                                    println!("Not Def op");
+                                }
+                                
+                            }
+                        }
+                    }
+                    
+                },
+                ByteCode::UNARYOP(op) => {
+                    let v = self.now.pop();
+                    if matches!(v, Some(NowType::Int(_))) {
+                        let a = self.s.pop().unwrap();
+
+                        match op {
+                            0 => {
+                                self.now.push(NowType::Int(a));
+                                self.s.push(a);
+                                self.val.push(NowType::Int(a));
+                            },
+                            1 => {
+                                self.now.push(NowType::Int(-a));
+                                self.s.push(-a);
+                                self.val.push(NowType::Int(-a));
+                            },
+                            _ => println!("Invalid unary operator"),
+                        }
+                    } else if matches!(v, Some(NowType::Float(_))) {
+                        let a = self.s2.pop().unwrap();
+
+                        match op {
+                            0 => {
+                                self.now.push(NowType::Float(a));
+                                self.s2.push(a);
+                                self.val.push(NowType::Float(a));
+                            },
+                            1 => {
+                                self.now.push(NowType::Float(-a));
+                                self.s2.push(-a);
+                                self.val.push(NowType::Float(-a));
+                            },
+                            _ => println!("Invalid unary operator"),
+                        }
+                    }
+                }
+            }
+        }
+
+        return self.val.clone();
+    }
+}
+
 fn main() {
     loop {
         let mut input = String::new();
@@ -541,10 +813,21 @@ fn main() {
                 match token {
                     Ok(v) => {
 
-                        let ast = &Perser::new(v).parser().unwrap();
-                        
-                        let mut dis = Dis::new();
-                        dis.dis(ast.clone()).dis();
+                        let ast = &Perser::new(v).parser();
+                        match ast {
+                            Ok(v) => {
+                                let asts = v.clone();
+                                let mut dis = Dis::new();
+                                //dis.dis(ast.clone()).dis();
+
+                                let mut vm = VM::new(dis.dis(asts));
+                                let mut v = vm.run();
+                                v.pop().unwrap().get();
+                            },
+                            Err(e) => {
+                                println!("Error: {}", e);
+                            }
+                        }
                     }
                     Err(e) => {println!("{}", e);}
                 }
